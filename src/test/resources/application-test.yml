@@ -1,0 +1,14 @@
+spring:
+  kafka:
+    bootstrap-servers: localhost:9092
+    admin:
+      # Sin broker en los tests: que KafkaAdmin no intente crear los topicos al
+      # arrancar (esperaria 30 s y loguearia el error). En produccion SI los crea.
+      auto-create: false
+
+barriodigital:
+  security:
+    issuer-uri: https://login.microsoftonline.com/test-tenant/v2.0
+    audiences:
+      - api://test-api
+    required-scope: access_as_user

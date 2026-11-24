@@ -1,0 +1,72 @@
+server:
+  port: 8087
+
+spring:
+  application:
+    name: ms-barriodigital-kafkaadmin
+  kafka:
+    # En AWS: las IP privadas de los 3 brokers de ec2-kafka (:9092,:9093,:9094).
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    admin:
+      # Al arrancar, KafkaAdmin crea los topicos de barriodigital.kafka.topics que
+      # falten y alinea las configs de los que ya existen. Consecuencia: un cambio
+      # hecho por PATCH a uno de esos 4 topicos se revierte al reiniciar este
+      # servicio. La topologia base es codigo; lo operativo es API (ver README).
+      modify-topic-configs: true
+      properties:
+        # Broker caido -> 502 en ~10 s, no una peticion colgada 60 s (default).
+        default.api.timeout.ms: 10000
+        request.timeout.ms: 5000
+
+barriodigital:
+  security:
+    issuer-uri: ${AAD_ISSUER_URI:https://login.microsoftonline.com/00000000-0000-0000-0000-000000000000/v2.0}
+    audiences:
+      # tokens v2.0 traen aud = GUID; v1.0 traen aud = api://GUID. Aceptar ambos.
+      - ${AAD_API_CLIENT_ID:00000000-0000-0000-0000-000000000000}
+      - api://${AAD_API_CLIENT_ID:00000000-0000-0000-0000-000000000000}
+    required-scope: ${AAD_REQUIRED_SCOPE:access_as_user}
+  kafka:
+    # Caso §9 / Cumplimiento-Prueba3.md §4 "Topicos". 3 particiones = hasta 3
+    # consumidores en paralelo por grupo; RF 3 + min.insync 2 = se tolera 1 broker
+    # caido sin perder escrituras con acks=all.
+    topics:
+      requests-events:
+        # Hechos del tramite (KPIs y timeline). 7 d permiten replay para recalcular KPIs.
+        nombre: requests.events
+        particiones: 3
+        replicas: 3
+        retention-ms: 604800000      # 7 dias
+        cleanup-policy: delete
+        min-insync-replicas: 2
+      audit-timeline:
+        # Quien/que/cuando. key = eventId: compact colapsa reenvios del mismo evento
+        # sin borrar la historia del tramite; delete borra pasados 30 d (Oracle guarda el resto).
+        nombre: audit.timeline
+        particiones: 3
+        replicas: 3
+        retention-ms: 2592000000     # 30 dias
+        cleanup-policy: compact,delete
+        min-insync-replicas: 2
+      requests-events-dlt:
+        # Lo que fallo tras los reintentos. 3 particiones porque el
+        # DeadLetterPublishingRecoverer publica en la misma particion del original.
+        nombre: requests.events.DLT
+        particiones: 3
+        replicas: 3
+        retention-ms: 1209600000     # 14 dias para analizar fallos
+        cleanup-policy: delete
+        min-insync-replicas: 2
+      audit-timeline-dlt:
+        nombre: audit.timeline.DLT
+        particiones: 3
+        replicas: 3
+        retention-ms: 1209600000     # 14 dias
+        cleanup-policy: delete
+        min-insync-replicas: 2
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
